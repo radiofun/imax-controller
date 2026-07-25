@@ -2,6 +2,8 @@
 
 A dumb (non-connected) replica of an IMAX GT-style show-control touch panel, rendered as a Next.js web app with a CRT monitor look.
 
+![IMAX GT-style show control panel](./docs/screenshot.png)
+
 ## Features
 
 - Amber-on-black show control UI (transport, flags, lamp/frame readouts)

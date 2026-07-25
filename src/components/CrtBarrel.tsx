@@ -216,8 +216,8 @@ export default function CrtBarrel({
           <foreignObject x={0} y={0} width={lw} height={lh}>
             <div
               className="crt-source"
-              xmlns="http://www.w3.org/1999/xhtml"
               style={sourceStyle}
+              {...({ xmlns: "http://www.w3.org/1999/xhtml" } as object)}
             >
               {children}
             </div>
