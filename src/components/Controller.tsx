@@ -78,11 +78,13 @@ function formatDate(d: Date) {
 }
 
 function CrtScreen({
+  flat,
   amount,
   resolution,
   settings,
   children,
 }: {
+  flat: boolean;
   amount: number;
   resolution: number;
   settings: CrtSettings;
@@ -90,9 +92,13 @@ function CrtScreen({
 }) {
   return (
     <>
-      <CrtBarrel amount={amount} resolution={resolution}>
-        {children}
-      </CrtBarrel>
+      {flat ? (
+        <div className="crt-source crt-flat">{children}</div>
+      ) : (
+        <CrtBarrel amount={amount} resolution={resolution}>
+          {children}
+        </CrtBarrel>
+      )}
       <CrtShader settings={settings} />
     </>
   );
@@ -146,15 +152,29 @@ export default function Controller() {
   const [presetsDone, setPresetsDone] = useState(true);
   const [crt, setCrt] = useState<CrtSettings>(DEFAULT_CRT);
   const [showKeys, setShowKeys] = useState(false);
+  /** Skip SVG barrel on phones — foreignObject sizing is unreliable there. */
+  const [flatCrt, setFlatCrt] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 900px)").matches
+      : false,
+  );
 
   useEffect(() => {
     const desktopKeys = window.matchMedia(
       "(min-width: 901px) and (pointer: fine)",
     );
-    const sync = () => setShowKeys(desktopKeys.matches);
+    const narrow = window.matchMedia("(max-width: 900px)");
+    const sync = () => {
+      setShowKeys(desktopKeys.matches);
+      setFlatCrt(narrow.matches);
+    };
     sync();
     desktopKeys.addEventListener("change", sync);
-    return () => desktopKeys.removeEventListener("change", sync);
+    narrow.addEventListener("change", sync);
+    return () => {
+      desktopKeys.removeEventListener("change", sync);
+      narrow.removeEventListener("change", sync);
+    };
   }, []);
 
   const pushLog = useCallback((line: string) => {
@@ -664,6 +684,7 @@ export default function Controller() {
 
             <div className="screen">
               <CrtScreen
+                flat={flatCrt}
                 amount={crt.curvature}
                 resolution={crt.resolution}
                 settings={crt}
