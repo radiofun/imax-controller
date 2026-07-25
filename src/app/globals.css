@@ -70,24 +70,22 @@ button {
 }
 
 .stage-slot {
+  position: relative;
   flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  place-items: center;
   overflow: hidden;
 }
 
-.stage {
-  position: relative;
-  flex: none;
-  /* width/height set inline from StageFrame fit scale */
-}
-
+.stage,
 .stage-inner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: var(--stage-w);
   height: var(--stage-h);
-  transform-origin: top left;
+  transform-origin: center center;
+  /* transform: translate(-50%, -50%) scale(...) set by StageFrame */
 }
 
 /* Direct panel fill — used on phones where SVG foreignObject sizing breaks. */
