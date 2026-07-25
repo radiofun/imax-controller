@@ -10,6 +10,7 @@ import {
 import CrtBarrel from "@/components/CrtBarrel";
 import CrtShader from "@/components/CrtShader";
 import ShaderControls from "@/components/ShaderControls";
+import StageFrame from "@/components/StageFrame";
 import { DEFAULT_CRT, type CrtSettings } from "@/lib/crtSettings";
 import {
   moveMenu,
@@ -122,7 +123,15 @@ export default function Controller() {
   ]);
   const [presetsDone, setPresetsDone] = useState(true);
   const [crt, setCrt] = useState<CrtSettings>(DEFAULT_CRT);
-  const [showKeys, setShowKeys] = useState(true);
+  const [showKeys, setShowKeys] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 901px) and (pointer: fine)");
+    const sync = () => setShowKeys(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const pushLog = useCallback((line: string) => {
     setLog((prev) => [line, ...prev].slice(0, 40));
@@ -622,7 +631,7 @@ export default function Controller() {
       }
     >
       <div className="workspace">
-        <div className="stage">
+        <StageFrame>
           <div className="bezel">
             <div className="leds" aria-hidden>
               <span className="led" />
@@ -977,9 +986,9 @@ export default function Controller() {
               <CrtShader settings={crt} />
             </div>
           </div>
-        </div>
+        </StageFrame>
 
-        <div className="side-rail">
+        <aside className="side-rail">
           <ShaderControls settings={crt} onChange={setCrt} />
 
           {showKeys && (
@@ -1029,7 +1038,7 @@ export default function Controller() {
               </ul>
             </div>
           )}
-        </div>
+        </aside>
       </div>
     </div>
   );
