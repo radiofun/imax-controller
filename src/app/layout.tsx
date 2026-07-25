@@ -1,0 +1,22 @@
+import type { Metadata, Viewport } from "next";
+import "@fontsource/vt323";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "IMAX Show Control",
+  description: "A dumb replica of an IMAX GT projector show-control touch panel.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#050505",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
