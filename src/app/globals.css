@@ -79,12 +79,21 @@ button {
   overflow: hidden;
 }
 
-.stage {
+/* Desktop: real fitted layout box (no CSS transform) */
+.stage-layout {
   position: relative;
   flex: none;
-  /* width/height set inline by StageFrame to the fitted layout size */
-  max-width: 100%;
-  max-height: 100%;
+}
+
+/* Mobile: fixed design canvas; scale via transform (DOM-written) */
+.stage-transform {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--stage-w);
+  height: var(--stage-h);
+  transform-origin: center center;
+  flex: none;
 }
 
 .side-rail {
@@ -379,12 +388,13 @@ button {
   text-shadow: var(--glow);
 }
 
-/* Mobile: no SVG barrel — fill the glass directly */
+/* Mobile: no SVG barrel — panel fills the (transform-scaled) design screen */
 .crt-flat {
   position: relative;
   z-index: 1;
   width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
 /* WebGL CRT glass — multiply over the panel (same on desktop + mobile) */
