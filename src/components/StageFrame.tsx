@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const STAGE_W = 980;
 const STAGE_H = 700;
-const INSET = 12;
+const INSET = 4;
 const MAX_SCALE = 2.25;
 
 type Props = {
@@ -19,29 +19,30 @@ function fitScale(width: number, height: number) {
 }
 
 /**
- * Fills the flex slot and scales the fixed 980×700 canvas with CSS
- * transform only — transform does not affect layout, so ResizeObserver
- * cannot feedback-loop (which felt like gradual/eased resizing with zoom).
+ * Lays out the 980×700 monitor at a fitted CSS size (no transform).
+ * Scaling the design canvas inside CrtBarrel avoids iOS foreignObject bugs
+ * caused by CSS transform on an ancestor.
  */
 export default function StageFrame({ children }: Props) {
   const slotRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const scaleRef = useRef(0.5);
+  const [size, setSize] = useState({
+    w: STAGE_W * 0.5,
+    h: STAGE_H * 0.5,
+  });
 
   useEffect(() => {
     const slot = slotRef.current;
-    const stage = stageRef.current;
-    if (!slot || !stage) return;
-
-    const apply = (next: number) => {
-      if (Math.abs(scaleRef.current - next) < 0.0005) return;
-      scaleRef.current = next;
-      // Direct DOM write — no React render lag while dragging a window edge.
-      stage.style.transform = `translate(-50%, -50%) scale(${next})`;
-    };
+    if (!slot) return;
 
     const update = () => {
-      apply(fitScale(slot.clientWidth, slot.clientHeight));
+      const s = fitScale(slot.clientWidth, slot.clientHeight);
+      const w = STAGE_W * s;
+      const h = STAGE_H * s;
+      setSize((prev) =>
+        Math.abs(prev.w - w) < 0.5 && Math.abs(prev.h - h) < 0.5
+          ? prev
+          : { w, h },
+      );
     };
 
     update();
@@ -72,13 +73,8 @@ export default function StageFrame({ children }: Props) {
   return (
     <div className="stage-slot" ref={slotRef}>
       <div
-        ref={stageRef}
-        className="stage stage-inner"
-        style={{
-          width: STAGE_W,
-          height: STAGE_H,
-          transform: "translate(-50%, -50%) scale(0.5)",
-        }}
+        className="stage"
+        style={{ width: size.w, height: size.h }}
       >
         {children}
       </div>

@@ -10,6 +10,10 @@ import {
   type ReactNode,
 } from "react";
 
+/** Panel design canvas inside the glass (stage 980×700 minus bezel chrome). */
+const DESIGN_W = 900;
+const DESIGN_H = 632;
+
 type Props = {
   amount: number;
   /** 1 = full res (sharp), ~0.45 = chunky CRT */
@@ -87,10 +91,9 @@ async function canvasToBlobUrl(canvas: HTMLCanvasElement): Promise<string> {
 /**
  * Low-res → (optional) barrel → upscale.
  *
- * Curvature: SVG feDisplacementMap samples each output pixel from a
- * nearby input pixel. The map says "pull from farther out at the edges",
- * which makes the image bulge like CRT glass. `amount` only sets how
- * many pixels that pull is (scale ≈ lowResWidth * amount * 0.45).
+ * The SVG fills the real screen box (phone/desktop layout px). The panel is
+ * authored at DESIGN_W×DESIGN_H and scaled inside foreignObject — no CSS
+ * transform on an ancestor, which breaks foreignObject on iOS.
  */
 export default function CrtBarrel({
   amount,
@@ -103,24 +106,35 @@ export default function CrtBarrel({
     [rawId],
   );
   const svgRef = useRef<SVGSVGElement>(null);
-  const [size, setSize] = useState({ w: 900, h: 632 });
+  /** Real screen layout size in CSS pixels. */
+  const [screen, setScreen] = useState({ w: DESIGN_W, h: DESIGN_H });
   const [mapUrl, setMapUrl] = useState("");
 
   const res = Math.min(1, Math.max(0.3, resolution));
-  const lw = Math.max(2, Math.round(size.w * res));
-  const lh = Math.max(2, Math.round(size.h * res));
+  // Barrel / FO work in screen-pixel space (scaled by CRT resolution).
+  const lw = Math.max(2, Math.round(screen.w * res));
+  const lh = Math.max(2, Math.round(screen.h * res));
   const up = 1 / res;
+
+  // Fit the fixed design canvas into the FO (cover letterboxing if aspect drifts).
+  const designScale = Math.min(lw / DESIGN_W, lh / DESIGN_H);
+  const ox = (lw - DESIGN_W * designScale) / 2;
+  const oy = (lh - DESIGN_H * designScale) / 2;
 
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const ro = new ResizeObserver((entries) => {
-      const cr = entries[0]?.contentRect;
-      if (!cr) return;
-      const w = Math.round(cr.width);
-      const h = Math.round(cr.height);
-      if (w > 2 && h > 2) setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
-    });
+
+    const update = () => {
+      const w = Math.round(svg.clientWidth);
+      const h = Math.round(svg.clientHeight);
+      if (w > 2 && h > 2) {
+        setScreen((s) => (s.w === w && s.h === h ? s : { w, h }));
+      }
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
     ro.observe(svg);
     return () => ro.disconnect();
   }, []);
@@ -159,9 +173,9 @@ export default function CrtBarrel({
   const filterUrl = res < 0.995 || useWarp ? `url(#${filterId})` : undefined;
 
   const sourceStyle = {
-    width: size.w,
-    height: size.h,
-    transform: `scale(${res})`,
+    width: DESIGN_W,
+    height: DESIGN_H,
+    transform: `translate(${ox}px, ${oy}px) scale(${designScale})`,
     transformOrigin: "top left",
   } as CSSProperties;
 

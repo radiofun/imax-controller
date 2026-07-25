@@ -74,18 +74,17 @@ button {
   flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
+  display: grid;
+  place-items: center;
   overflow: hidden;
 }
 
-.stage,
-.stage-inner {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--stage-w);
-  height: var(--stage-h);
-  transform-origin: center center;
-  /* transform: translate(-50%, -50%) scale(...) set by StageFrame */
+.stage {
+  position: relative;
+  flex: none;
+  /* width/height set inline by StageFrame to the fitted layout size */
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .side-rail {
@@ -259,25 +258,6 @@ button {
   .key-help {
     display: none;
   }
-
-  .bezel {
-    padding: 16px 18px;
-    border-radius: 14px;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.09),
-      inset 0 -2px 6px rgba(0, 0, 0, 0.8),
-      0 12px 28px rgba(0, 0, 0, 0.55);
-  }
-
-  .leds {
-    left: 6px;
-    gap: 16px;
-  }
-
-  .led {
-    width: 7px;
-    height: 7px;
-  }
 }
 
 @media (max-width: 900px) and (orientation: landscape) {
@@ -312,8 +292,13 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 34px 40px;
-  border-radius: 22px;
+  /*
+   * CSS % padding is always resolved against WIDTH (both axes).
+   * Target chrome at design 980×700: 40px sides, 34px top/bottom
+   * → 40/980 ≈ 4.082%, 34/980 ≈ 3.469% so the glass stays 900×632.
+   */
+  padding: 3.469% 4.082%;
+  border-radius: 2.25% / 3.14%;
   background: linear-gradient(165deg, #24252a 0%, #131418 40%, #0b0b0e 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
@@ -323,16 +308,16 @@ button {
 
 .leds {
   position: absolute;
-  left: 14px;
+  left: 1.43%;
   top: 50%;
   translate: 0 -50%;
   display: grid;
-  gap: 34px;
+  gap: clamp(12px, 4.8vh, 34px);
 }
 
 .led {
-  width: 9px;
-  height: 9px;
+  width: clamp(5px, 0.92vw, 9px);
+  height: clamp(5px, 0.92vw, 9px);
   border-radius: 2px;
   background: #2bff6a;
   box-shadow: 0 0 10px 2px rgba(43, 255, 106, 0.65);
@@ -360,7 +345,7 @@ button {
   width: 100%;
   height: 100%;
   padding: 0;
-  border-radius: 16px / 12px;
+  border-radius: 1.78% / 1.9%;
   background: var(--screen);
   box-shadow:
     inset 0 0 0 1px #000,
@@ -384,10 +369,8 @@ button {
   image-rendering: auto;
 }
 
-/* Live UI inside foreignObject */
+/* Live UI inside foreignObject — width/height set inline to design canvas */
 .crt-source {
-  width: 100%;
-  height: 100%;
   padding: 14px 16px 16px;
   overflow: hidden;
   box-sizing: border-box;
