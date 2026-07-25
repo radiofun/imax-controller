@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import CrtBarrel from "@/components/CrtBarrel";
 import CrtShader from "@/components/CrtShader";
@@ -76,6 +77,33 @@ function formatDate(d: Date) {
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${pad(d.getFullYear() % 100)}`;
 }
 
+function CrtScreen({
+  flat,
+  amount,
+  resolution,
+  settings,
+  children,
+}: {
+  flat: boolean;
+  amount: number;
+  resolution: number;
+  settings: CrtSettings;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      {flat ? (
+        <div className="crt-source crt-flat">{children}</div>
+      ) : (
+        <CrtBarrel amount={amount} resolution={resolution}>
+          {children}
+        </CrtBarrel>
+      )}
+      <CrtShader settings={settings} />
+    </>
+  );
+}
+
 function formatShowTime(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
@@ -124,13 +152,29 @@ export default function Controller() {
   const [presetsDone, setPresetsDone] = useState(true);
   const [crt, setCrt] = useState<CrtSettings>(DEFAULT_CRT);
   const [showKeys, setShowKeys] = useState(false);
+  /** SVG foreignObject + nested scales mis-size UI on real phones. */
+  const [flatCrt, setFlatCrt] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 900px)").matches
+      : false,
+  );
 
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 901px) and (pointer: fine)");
-    const sync = () => setShowKeys(mq.matches);
+    const desktopKeys = window.matchMedia(
+      "(min-width: 901px) and (pointer: fine)",
+    );
+    const narrow = window.matchMedia("(max-width: 900px)");
+    const sync = () => {
+      setShowKeys(desktopKeys.matches);
+      setFlatCrt(narrow.matches);
+    };
     sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
+    desktopKeys.addEventListener("change", sync);
+    narrow.addEventListener("change", sync);
+    return () => {
+      desktopKeys.removeEventListener("change", sync);
+      narrow.removeEventListener("change", sync);
+    };
   }, []);
 
   const pushLog = useCallback((line: string) => {
@@ -639,9 +683,11 @@ export default function Controller() {
             </div>
 
             <div className="screen">
-              <CrtBarrel
+              <CrtScreen
+                flat={flatCrt}
                 amount={crt.curvature}
                 resolution={crt.resolution}
+                settings={crt}
               >
               <div className="panel">
                 <header className="header">
@@ -981,9 +1027,7 @@ export default function Controller() {
                   </div>
                 </div>
               )}
-              </CrtBarrel>
-
-              <CrtShader settings={crt} />
+              </CrtScreen>
             </div>
           </div>
         </StageFrame>

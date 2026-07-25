@@ -87,9 +87,16 @@ button {
 .stage-inner {
   width: var(--stage-w);
   height: var(--stage-h);
-  transform: scale(var(--stage-scale, 1));
   transform-origin: top left;
-  will-change: transform;
+}
+
+/* Direct panel fill — used on phones where SVG foreignObject sizing breaks. */
+.crt-flat {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 .side-rail {
@@ -196,6 +203,12 @@ button {
 
 /* Phone / narrow: stack view above controls; view fills leftover space. */
 @media (max-width: 900px) {
+  .room {
+    /* Prefer small viewport so iOS browser chrome doesn’t clip the stage. */
+    height: 100svh;
+    max-height: 100svh;
+  }
+
   .workspace {
     flex-direction: column;
     align-items: stretch;

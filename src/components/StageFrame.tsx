@@ -10,9 +10,8 @@ import {
 
 const STAGE_W = 980;
 const STAGE_H = 700;
-/** Keep bezel shadow / subpixels from clipping against the slot edge. */
-const INSET = 16;
-/** Avoid absurd upscaling on very large displays. */
+/** Breathing room so the bezel isn’t clipped by the slot. */
+const INSET = 12;
 const MAX_SCALE = 2.25;
 
 type Props = {
@@ -26,13 +25,27 @@ function fitScale(width: number, height: number) {
   return Math.min(MAX_SCALE, w / STAGE_W, h / STAGE_H);
 }
 
+function supportsZoom() {
+  try {
+    return typeof CSS !== "undefined" && CSS.supports("zoom", "1");
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Scales the fixed 980×700 design canvas to fill its slot.
- * Layout box matches the scaled size so nothing is clipped by ancestors.
+ * Scales the fixed 980×700 canvas to fill its slot.
+ * Prefers CSS `zoom` (correct layout + paint on mobile WebKit/Blink).
+ * Falls back to transform + matching layout box.
  */
 export default function StageFrame({ children }: Props) {
   const slotRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  const [useZoom, setUseZoom] = useState(false);
+
+  useEffect(() => {
+    setUseZoom(supportsZoom());
+  }, []);
 
   useEffect(() => {
     const el = slotRef.current;
@@ -46,34 +59,68 @@ export default function StageFrame({ children }: Props) {
     };
 
     update();
-    const ro = new ResizeObserver(update);
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(update);
+    });
     ro.observe(el);
+
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
+
+    // iOS often reports the final slot size a tick after rotation / chrome show.
+    const t1 = window.setTimeout(update, 100);
+    const t2 = window.setTimeout(update, 350);
+
     return () => {
       ro.disconnect();
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
     };
   }, []);
 
-  const layoutW = Math.round(STAGE_W * scale * 1000) / 1000;
-  const layoutH = Math.round(STAGE_H * scale * 1000) / 1000;
+  const layoutW = STAGE_W * scale;
+  const layoutH = STAGE_H * scale;
 
   return (
     <div className="stage-slot" ref={slotRef}>
-      <div
-        className="stage"
-        style={
-          {
-            width: layoutW,
-            height: layoutH,
-            "--stage-scale": scale,
-          } as CSSProperties
-        }
-      >
-        <div className="stage-inner">{children}</div>
-      </div>
+      {useZoom ? (
+        <div
+          className="stage stage-inner"
+          style={
+            {
+              width: STAGE_W,
+              height: STAGE_H,
+              zoom: scale,
+            } as CSSProperties
+          }
+        >
+          {children}
+        </div>
+      ) : (
+        <div
+          className="stage"
+          style={{ width: layoutW, height: layoutH }}
+        >
+          <div
+            className="stage-inner"
+            style={{
+              width: STAGE_W,
+              height: STAGE_H,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          >
+            {children}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
