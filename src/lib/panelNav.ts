@@ -15,7 +15,7 @@ export type NavId =
   | "mode"
   | "autoload"
   | "changeshow"
-  | "exit";
+  | "play";
 
 type Links = Partial<Record<"up" | "down" | "left" | "right", NavId>>;
 
@@ -34,11 +34,11 @@ export const NAV_LINKS: Record<NavId, Links> = {
   flag2: { up: "flag1", down: "flag3", left: "remote" },
   flag3: { up: "flag2", down: "flag4", left: "remote" },
   flag4: { up: "flag3", down: "reset", left: "remote" },
-  reset: { up: "flag4", down: "exit", left: "remote" },
+  reset: { up: "flag4", down: "play", left: "remote" },
   mode: { up: "remote", right: "autoload" },
   autoload: { up: "remote", left: "mode", right: "changeshow" },
-  changeshow: { up: "remote", left: "autoload", right: "exit" },
-  exit: { up: "reset", left: "changeshow" },
+  changeshow: { up: "remote", left: "autoload", right: "play" },
+  play: { up: "reset", left: "changeshow" },
 };
 
 export const NAV_ORDER: NavId[] = [
@@ -58,7 +58,7 @@ export const NAV_ORDER: NavId[] = [
   "mode",
   "autoload",
   "changeshow",
-  "exit",
+  "play",
 ];
 
 export function moveNav(from: NavId, dir: keyof Links): NavId {

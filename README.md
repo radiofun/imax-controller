@@ -43,7 +43,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 | `T` | Edit show title |
 | `F` `A` `C` | Functions / Alarms / Change Show |
 | `M` `L` | Auto↔Manual / Remote↔Local |
-| `O` `E` | Auto Load / Exit Show |
+| `O` `E` / `P` | Auto Load / Play trailer |
 | `1`–`5` | Toggle flags |
 | `0` | Reset frame count |
 | `Esc` | Close overlay / Stop |

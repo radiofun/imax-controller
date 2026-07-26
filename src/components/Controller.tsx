@@ -33,6 +33,10 @@ const DEFAULT_SHOWS = [
   "INTERSTELLAR",
 ];
 
+/** Odyssey explore-formats IMAX trailer (MP4 fallback from odysseymovie.com). */
+const TRAILER_SRC =
+  "https://dx35vtwkllhj9.cloudfront.net/universalstudios/the-odyssey/video/imax-fallback-trailer.mp4";
+
 const FLAGS = [
   "Spare",
   "Remote Start Bit",
@@ -127,6 +131,7 @@ function navClass(base: string, id: NavId, focus: NavId, on = false) {
 
 export default function Controller() {
   const titleRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [now, setNow] = useState(() => new Date());
   const [transport, setTransport] = useState<Transport>("STOP");
   const [autoMode, setAutoMode] = useState(true);
@@ -135,6 +140,7 @@ export default function Controller() {
   const [showIndex, setShowIndex] = useState(0);
   const [frameCount, setFrameCount] = useState(255315);
   const [showSeconds, setShowSeconds] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [flags, setFlags] = useState<Record<string, boolean>>({
     Spare: false,
     "Remote Start Bit": false,
@@ -193,6 +199,15 @@ export default function Controller() {
     });
   }, []);
 
+  const stopTrailer = useCallback(() => {
+    const v = videoRef.current;
+    if (v) {
+      v.pause();
+      v.currentTime = 0;
+    }
+    setPlaying(false);
+  }, []);
+
   const setTransportSafe = useCallback(
     (next: Transport) => {
       if (next === "RUN") sfx.run();
@@ -200,9 +215,12 @@ export default function Controller() {
       else sfx.stop();
       setTransport(next);
       pushLog(`TRANSPORT ${next}`);
-      if (next === "STOP") setShowSeconds(0);
+      if (next === "STOP") {
+        setShowSeconds(0);
+        stopTrailer();
+      }
     },
-    [pushLog],
+    [pushLog, stopTrailer],
   );
 
   const autoLoad = useCallback(() => {
@@ -222,19 +240,35 @@ export default function Controller() {
     }, 900);
   }, [pushLog]);
 
-  const exitShow = useCallback(() => {
-    sfx.stop();
-    setTransport("STOP");
-    setShowSeconds(0);
+  const playTrailer = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+
+    if (playing) {
+      stopTrailer();
+      setTransport("STOP");
+      sfx.stop();
+      pushLog("PLAY STOPPED");
+      return;
+    }
+
+    sfx.run();
+    setPlaying(true);
+    setTransport("RUN");
     setFlags((f) => ({
       ...f,
-      "IN SHOW POSITION": false,
-      "REEL UNIT READY": false,
-      "SYSTEM READY": false,
+      "IN SHOW POSITION": true,
+      "REEL UNIT READY": true,
+      "SYSTEM READY": true,
     }));
-    setPresetsDone(false);
-    pushLog("EXIT SHOW");
-  }, [pushLog]);
+    setPresetsDone(true);
+    pushLog("PLAY TRAILER");
+    void v.play().catch(() => {
+      setPlaying(false);
+      setTransport("STOP");
+      pushLog("PLAY FAILED");
+    });
+  }, [playing, pushLog, stopTrailer]);
 
   const selectShow = useCallback(
     (i: number) => {
@@ -360,8 +394,8 @@ export default function Controller() {
         case "changeshow":
           openShows();
           break;
-        case "exit":
-          exitShow();
+        case "play":
+          playTrailer();
           break;
       }
     },
@@ -376,7 +410,7 @@ export default function Controller() {
       resetFrames,
       toggleMode,
       autoLoad,
-      exitShow,
+      playTrailer,
     ],
   );
 
@@ -605,9 +639,10 @@ export default function Controller() {
           openShows();
           break;
         case "e":
+        case "p":
           e.preventDefault();
-          setFocus("exit");
-          exitShow();
+          setFocus("play");
+          playTrailer();
           break;
         case "0":
         case "Backspace":
@@ -653,7 +688,7 @@ export default function Controller() {
     toggleMode,
     toggleRemote,
     autoLoad,
-    exitShow,
+    playTrailer,
     resetFrames,
     toggleFlag,
     pushLog,
@@ -921,16 +956,29 @@ export default function Controller() {
 
                   <button
                     type="button"
-                    className={navClass("btn center", "exit", focus)}
+                    className={navClass("btn center", "play", focus, playing)}
                     onClick={() => {
-                      setFocus("exit");
-                      exitShow();
+                      setFocus("play");
+                      playTrailer();
                     }}
                   >
-                    Exit Show
+                    PLAY
                   </button>
                 </footer>
               </div>
+
+              <video
+                ref={videoRef}
+                className={`monitor-video${playing ? " on" : ""}`}
+                src={TRAILER_SRC}
+                playsInline
+                preload="metadata"
+                onEnded={() => {
+                  setPlaying(false);
+                  setTransport("STOP");
+                  pushLog("TRAILER END");
+                }}
+              />
 
               {overlay && (
                 <div className="overlay" role="dialog" aria-modal="true">
@@ -1071,7 +1119,7 @@ export default function Controller() {
                   <kbd>M</kbd>
                   <kbd>L</kbd>
                   <kbd>O</kbd>
-                  <kbd>E</kbd>
+                  <kbd>P</kbd> Play
                 </li>
                 <li>
                   <kbd>1</kbd>–<kbd>5</kbd> Flags · <kbd>0</kbd> Reset
