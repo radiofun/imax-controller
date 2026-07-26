@@ -55,7 +55,7 @@ Click or press a key once to unlock audio (browser policy).
 
 - Next.js 15 + React 19 + TypeScript
 - VT323 for terminal typography
-- WebGL2 CRT overlay + SVG `feDisplacementMap` barrel warp
+- WebGL CRT overlay + SVG `feDisplacementMap` barrel warp
 
 ## License
 

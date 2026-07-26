@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CrtSettings } from "@/lib/crtSettings";
 
 const VERT_300 = `#version 300 es
@@ -12,7 +12,11 @@ void main() {
 }`;
 
 const FRAG_300 = `#version 300 es
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
+#else
+precision mediump float;
+#endif
 
 uniform vec2 u_res;
 uniform float u_time;
@@ -26,7 +30,9 @@ in vec2 v_uv;
 out vec4 outColor;
 
 float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 void main() {
@@ -41,7 +47,7 @@ void main() {
 
   vec2 fromC = (v_uv - 0.5) * vec2(1.0, 0.92);
   float dist = length(fromC);
-  float vig = smoothstep(0.95, 0.58, dist);
+  float vig = 1.0 - smoothstep(0.58, 0.95, dist);
   float vigAmt = clamp(u_vignette, 0.0, 1.5) / 1.5;
   float vigMix = mix(1.0, mix(0.93, 1.0, vig), vigAmt);
 
@@ -65,7 +71,12 @@ void main() {
 }`;
 
 const FRAG_100 = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
+#else
+precision mediump float;
+#endif
+
 uniform vec2 u_res;
 uniform float u_time;
 uniform float u_vignette;
@@ -76,7 +87,9 @@ uniform float u_noise;
 varying vec2 v_uv;
 
 float hash(vec2 p) {
-  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 void main() {
@@ -91,7 +104,7 @@ void main() {
 
   vec2 fromC = (v_uv - 0.5) * vec2(1.0, 0.92);
   float dist = length(fromC);
-  float vig = smoothstep(0.95, 0.58, dist);
+  float vig = 1.0 - smoothstep(0.58, 0.95, dist);
   float vigAmt = clamp(u_vignette, 0.0, 1.5) / 1.5;
   float vigMix = mix(1.0, mix(0.93, 1.0, vig), vigAmt);
 
@@ -130,24 +143,30 @@ function createProgram(gl: GL, vsSrc: string, fsSrc: string) {
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    throw new Error(gl.getProgramInfoLog(prog) || "program link failed");
+    const log = gl.getProgramInfoLog(prog) || "program link failed";
+    gl.deleteProgram(prog);
+    throw new Error(log);
   }
   return prog;
 }
 
 function getGL(canvas: HTMLCanvasElement): { gl: GL; is2: boolean } | null {
   const opts: WebGLContextAttributes = {
-    alpha: false,
+    // Keep failed/lost canvases transparent so the CSS fallback remains visible.
+    alpha: true,
     antialias: false,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
+    powerPreference: "low-power",
   };
-  const gl2 = canvas.getContext("webgl2", opts);
-  if (gl2) return { gl: gl2, is2: true };
+  // This shader only uses WebGL 1 features. Prefer that smaller compatibility
+  // surface on Safari, while retaining WebGL 2 as a last resort.
   const gl1 =
     canvas.getContext("webgl", opts) ||
     canvas.getContext("experimental-webgl", opts);
   if (gl1) return { gl: gl1 as WebGLRenderingContext, is2: false };
+  const gl2 = canvas.getContext("webgl2", opts);
+  if (gl2) return { gl: gl2, is2: true };
   return null;
 }
 
@@ -159,6 +178,7 @@ type Props = {
 export default function CrtShader({ settings }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const settingsRef = useRef(settings);
+  const [contextGeneration, setContextGeneration] = useState(0);
   settingsRef.current = settings;
 
   useEffect(() => {
@@ -167,12 +187,58 @@ export default function CrtShader({ settings }: Props) {
     const parent = canvas.parentElement;
     if (!parent) return;
 
+    let raf = 0;
+    let alive = true;
+    let contextWasLost = false;
+    let cleanupGl: GL | null = null;
+    let cleanupProgram: WebGLProgram | null = null;
+    let cleanupBuffer: WebGLBuffer | null = null;
+    let cleanupVao: WebGLVertexArrayObject | null = null;
+    let cleanupIs2 = false;
+
+    const useFallback = () => {
+      canvas.classList.add("crt-shader-fallback");
+    };
+
+    const handleContextLost = (event: Event) => {
+      // preventDefault opts in to Safari/WebKit restoring the context.
+      event.preventDefault();
+      contextWasLost = true;
+      alive = false;
+      cancelAnimationFrame(raf);
+      useFallback();
+    };
+
+    const handleContextRestored = () => {
+      // All GPU resources are invalid after restoration; rebuild them.
+      setContextGeneration((generation) => generation + 1);
+    };
+
+    canvas.addEventListener("webglcontextlost", handleContextLost);
+    canvas.addEventListener("webglcontextrestored", handleContextRestored);
+
+    const cleanup = () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+
+      if (!cleanupGl || contextWasLost) return;
+      if (cleanupBuffer) cleanupGl.deleteBuffer(cleanupBuffer);
+      if (cleanupIs2 && cleanupVao) {
+        (cleanupGl as WebGL2RenderingContext).deleteVertexArray(cleanupVao);
+      }
+      if (cleanupProgram) cleanupGl.deleteProgram(cleanupProgram);
+    };
+
     const got = getGL(canvas);
     if (!got) {
-      canvas.classList.add("crt-shader-fallback");
-      return;
+      useFallback();
+      return cleanup;
     }
     const { gl, is2 } = got;
+    cleanupGl = gl;
+    cleanupIs2 = is2;
     canvas.classList.remove("crt-shader-fallback");
 
     let prog: WebGLProgram;
@@ -182,12 +248,20 @@ export default function CrtShader({ settings }: Props) {
         is2 ? VERT_300 : VERT_100,
         is2 ? FRAG_300 : FRAG_100,
       );
-    } catch {
-      canvas.classList.add("crt-shader-fallback");
-      return;
+    } catch (error) {
+      console.warn("CRT shader disabled:", error);
+      useFallback();
+      return cleanup;
     }
+    cleanupProgram = prog;
 
-    const buf = gl.createBuffer()!;
+    const buf = gl.createBuffer();
+    if (!buf) {
+      console.warn("CRT shader disabled: WebGL buffer allocation failed");
+      useFallback();
+      return cleanup;
+    }
+    cleanupBuffer = buf;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(
       gl.ARRAY_BUFFER,
@@ -200,6 +274,7 @@ export default function CrtShader({ settings }: Props) {
     if (is2) {
       const gl2 = gl as WebGL2RenderingContext;
       vao = gl2.createVertexArray();
+      cleanupVao = vao;
       gl2.bindVertexArray(vao);
       gl.enableVertexAttribArray(loc);
       gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
@@ -215,9 +290,6 @@ export default function CrtShader({ settings }: Props) {
     const uGrille = gl.getUniformLocation(prog, "u_grille");
     const uFlicker = gl.getUniformLocation(prog, "u_flicker");
     const uNoise = gl.getUniformLocation(prog, "u_noise");
-
-    let raf = 0;
-    let alive = true;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -255,16 +327,8 @@ export default function CrtShader({ settings }: Props) {
 
     raf = requestAnimationFrame(frame);
 
-    return () => {
-      alive = false;
-      cancelAnimationFrame(raf);
-      gl.deleteBuffer(buf);
-      if (is2 && vao) {
-        (gl as WebGL2RenderingContext).deleteVertexArray(vao);
-      }
-      gl.deleteProgram(prog);
-    };
-  }, []);
+    return cleanup;
+  }, [contextGeneration]);
 
   return (
     <canvas

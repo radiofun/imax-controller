@@ -91,9 +91,9 @@ async function canvasToBlobUrl(canvas: HTMLCanvasElement): Promise<string> {
 /**
  * Low-res → (optional) barrel → upscale.
  *
- * The SVG fills the real screen box (phone/desktop layout px). The panel is
- * authored at DESIGN_W×DESIGN_H and scaled inside foreignObject — no CSS
- * transform on an ancestor, which breaks foreignObject on iOS.
+ * Blink/Gecko render in low-resolution coordinates and scale the filtered
+ * result. WebKit ignores that scale when a foreignObject is filtered, so its
+ * fallback keeps the foreignObject in full-size screen coordinates.
  */
 export default function CrtBarrel({
   amount,
@@ -108,18 +108,35 @@ export default function CrtBarrel({
   const svgRef = useRef<SVGSVGElement>(null);
   /** Real screen layout size in CSS pixels. */
   const [screen, setScreen] = useState({ w: DESIGN_W, h: DESIGN_H });
-  const [mapUrl, setMapUrl] = useState("");
+  const [mapBitmap, setMapBitmap] = useState({ url: "", w: 0, h: 0 });
+  const [useWebKitLayout, setUseWebKitLayout] = useState(false);
 
   const res = Math.min(1, Math.max(0.3, resolution));
   // Barrel / FO work in screen-pixel space (scaled by CRT resolution).
   const lw = Math.max(2, Math.round(screen.w * res));
   const lh = Math.max(2, Math.round(screen.h * res));
-  const up = 1 / res;
+  const upX = screen.w / lw;
+  const upY = screen.h / lh;
 
-  // Fit the fixed design canvas into the FO (cover letterboxing if aspect drifts).
-  const designScale = Math.min(lw / DESIGN_W, lh / DESIGN_H);
-  const ox = (lw - DESIGN_W * designScale) / 2;
-  const oy = (lh - DESIGN_H * designScale) / 2;
+  const filterW = useWebKitLayout ? screen.w : lw;
+  const filterH = useWebKitLayout ? screen.h : lh;
+  // WebKit sizes CSS reference-filter output from feImage's natural bitmap.
+  // Give it a full-size map so the filtered HTML cannot collapse to `res`.
+  const mapW = useWebKitLayout ? Math.round(screen.w) : lw;
+  const mapH = useWebKitLayout ? Math.round(screen.h) : lh;
+
+  // Fit the fixed design canvas into the active FO coordinate space.
+  const designScale = Math.min(filterW / DESIGN_W, filterH / DESIGN_H);
+  const ox = (filterW - DESIGN_W * designScale) / 2;
+  const oy = (filterH - DESIGN_H * designScale) / 2;
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const webKit =
+      /AppleWebKit\//.test(ua) &&
+      !/(?:Chrome|Chromium|Edg|OPR)\//.test(ua);
+    setUseWebKitLayout(webKit);
+  }, []);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -137,24 +154,22 @@ export default function CrtBarrel({
     const ro = new ResizeObserver(update);
     ro.observe(svg);
     return () => ro.disconnect();
-  }, []);
+  }, [useWebKitLayout]);
 
-  const resBucket = Math.round(res * 20) / 20;
-
-  // Map shape is fixed — only rebuild when the low-res size changes
+  // Map shape is fixed — only rebuild when its bitmap dimensions change.
   useEffect(() => {
     let alive = true;
     let url = "";
-    const canvas = buildBarrelMap(lw, lh);
+    const canvas = buildBarrelMap(mapW, mapH);
     if (!canvas) return;
     canvasToBlobUrl(canvas).then((next) => {
       if (!alive) {
         if (next) URL.revokeObjectURL(next);
         return;
       }
-      setMapUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return next;
+      setMapBitmap((prev) => {
+        if (prev.url) URL.revokeObjectURL(prev.url);
+        return { url: next, w: mapW, h: mapH };
       });
       url = next;
     });
@@ -162,15 +177,30 @@ export default function CrtBarrel({
       alive = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [lw, lh, resBucket]);
+  }, [mapW, mapH]);
 
   // amount 0.05 → ~2% of width — subtle tube lip, not a fishbowl
   const dispScale =
-    amount <= 0.001 ? 0 : Math.round(lw * amount * 0.45);
+    amount <= 0.001
+      ? 0
+      : useWebKitLayout
+        ? amount * 0.45
+        : Math.round(filterW * amount * 0.45);
 
-  const blur = Math.max(0.35, (1 - res) * 1.35);
-  const useWarp = Boolean(mapUrl && dispScale > 0);
-  const filterUrl = res < 0.995 || useWarp ? `url(#${filterId})` : undefined;
+  // In the WebKit layout there is no outer scale, so compensate in user units.
+  const blur = Math.max(
+    0.35,
+    useWebKitLayout ? ((1 - res) * 1.35) / res : (1 - res) * 1.35,
+  );
+  const mapReady = Boolean(
+    mapBitmap.url && mapBitmap.w === mapW && mapBitmap.h === mapH,
+  );
+  const useWarp = Boolean(mapReady && dispScale > 0);
+  const canFilter = !useWebKitLayout || mapReady;
+  const filterUrl =
+    canFilter && (res < 0.995 || useWarp)
+      ? `url(#${filterId})`
+      : undefined;
 
   const sourceStyle = {
     width: DESIGN_W,
@@ -178,6 +208,78 @@ export default function CrtBarrel({
     transform: `translate(${ox}px, ${oy}px) scale(${designScale})`,
     transformOrigin: "top left",
   } as CSSProperties;
+
+  const filterDefinition = (
+    <filter
+      id={filterId}
+      filterUnits={useWebKitLayout ? "objectBoundingBox" : "userSpaceOnUse"}
+      primitiveUnits={
+        useWebKitLayout ? "objectBoundingBox" : "userSpaceOnUse"
+      }
+      x={useWebKitLayout ? "-12%" : -filterW * 0.12}
+      y={useWebKitLayout ? "-12%" : -filterH * 0.12}
+      width={useWebKitLayout ? "124%" : filterW * 1.24}
+      height={useWebKitLayout ? "124%" : filterH * 1.24}
+      colorInterpolationFilters="sRGB"
+    >
+      {mapReady && (
+        <feImage
+          href={mapBitmap.url}
+          result="dispMap"
+          x={0}
+          y={0}
+          width={useWebKitLayout ? 1 : filterW}
+          height={useWebKitLayout ? 1 : filterH}
+          preserveAspectRatio="none"
+        />
+      )}
+      {useWarp ? (
+        <feDisplacementMap
+          in="SourceGraphic"
+          in2="dispMap"
+          scale={dispScale}
+          xChannelSelector="R"
+          yChannelSelector="G"
+          result="warped"
+        />
+      ) : (
+        <feOffset in="SourceGraphic" result="warped" />
+      )}
+      <feGaussianBlur
+        in="warped"
+        stdDeviation={
+          useWebKitLayout ? `${blur / filterW} ${blur / filterH}` : blur
+        }
+      />
+    </filter>
+  );
+
+  if (useWebKitLayout) {
+    const webKitFilterStyle = {
+      filter: filterUrl,
+      WebkitFilter: filterUrl,
+    } as CSSProperties;
+
+    return (
+      <>
+        <svg
+          ref={svgRef}
+          className="crt-filter-defs"
+          xmlns="http://www.w3.org/2000/svg"
+          width="100%"
+          height="100%"
+          aria-hidden
+        >
+          <defs>{filterDefinition}</defs>
+        </svg>
+        <div className="crt-webkit-filter-host" style={webKitFilterStyle}>
+          <div className="crt-source" style={sourceStyle}>
+            {children}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <svg
@@ -187,47 +289,13 @@ export default function CrtBarrel({
       width="100%"
       height="100%"
     >
-      <defs>
-        <filter
-          id={filterId}
-          filterUnits="userSpaceOnUse"
-          primitiveUnits="userSpaceOnUse"
-          x={-lw * 0.12}
-          y={-lh * 0.12}
-          width={lw * 1.24}
-          height={lh * 1.24}
-          colorInterpolationFilters="sRGB"
-        >
-          {mapUrl && (
-            <feImage
-              href={mapUrl}
-              result="dispMap"
-              x={0}
-              y={0}
-              width={lw}
-              height={lh}
-              preserveAspectRatio="none"
-            />
-          )}
-          {useWarp ? (
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="dispMap"
-              scale={dispScale}
-              xChannelSelector="R"
-              yChannelSelector="G"
-              result="warped"
-            />
-          ) : (
-            <feOffset in="SourceGraphic" result="warped" />
-          )}
-          <feGaussianBlur in="warped" stdDeviation={blur} />
-        </filter>
-      </defs>
+      <defs>{filterDefinition}</defs>
 
-      <g transform={`scale(${up})`}>
+      <g
+        transform={useWebKitLayout ? undefined : `scale(${upX} ${upY})`}
+      >
         <g filter={filterUrl}>
-          <foreignObject x={0} y={0} width={lw} height={lh}>
+          <foreignObject x={0} y={0} width={filterW} height={filterH}>
             <div
               className="crt-source"
               style={sourceStyle}
