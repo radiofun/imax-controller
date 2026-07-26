@@ -33,10 +33,6 @@ const DEFAULT_SHOWS = [
   "INTERSTELLAR",
 ];
 
-/** Odyssey explore-formats IMAX trailer (MP4 fallback from odysseymovie.com). */
-const TRAILER_SRC =
-  "https://dx35vtwkllhj9.cloudfront.net/universalstudios/the-odyssey/video/imax-fallback-trailer.mp4";
-
 const FLAGS = [
   "Spare",
   "Remote Start Bit",
@@ -131,8 +127,8 @@ function navClass(base: string, id: NavId, focus: NavId, on = false) {
 
 export default function Controller() {
   const titleRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [now, setNow] = useState(() => new Date());
+  // null until mount — avoids SSR/client clock text mismatch
+  const [now, setNow] = useState<Date | null>(null);
   const [transport, setTransport] = useState<Transport>("STOP");
   const [autoMode, setAutoMode] = useState(true);
   const [remoteMode, setRemoteMode] = useState(true);
@@ -140,7 +136,6 @@ export default function Controller() {
   const [showIndex, setShowIndex] = useState(0);
   const [frameCount, setFrameCount] = useState(255315);
   const [showSeconds, setShowSeconds] = useState(0);
-  const [playing, setPlaying] = useState(false);
   const [flags, setFlags] = useState<Record<string, boolean>>({
     Spare: false,
     "Remote Start Bit": false,
@@ -158,12 +153,8 @@ export default function Controller() {
   const [presetsDone, setPresetsDone] = useState(true);
   const [crt, setCrt] = useState<CrtSettings>(DEFAULT_CRT);
   const [showKeys, setShowKeys] = useState(false);
-  /** Skip SVG barrel on phones — foreignObject sizing is unreliable there. */
-  const [flatCrt, setFlatCrt] = useState(() =>
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 900px)").matches
-      : false,
-  );
+  /** Skip SVG barrel on phones — set after mount to avoid hydration mismatch. */
+  const [flatCrt, setFlatCrt] = useState(false);
 
   useEffect(() => {
     const desktopKeys = window.matchMedia(
@@ -199,15 +190,6 @@ export default function Controller() {
     });
   }, []);
 
-  const stopTrailer = useCallback(() => {
-    const v = videoRef.current;
-    if (v) {
-      v.pause();
-      v.currentTime = 0;
-    }
-    setPlaying(false);
-  }, []);
-
   const setTransportSafe = useCallback(
     (next: Transport) => {
       if (next === "RUN") sfx.run();
@@ -215,12 +197,9 @@ export default function Controller() {
       else sfx.stop();
       setTransport(next);
       pushLog(`TRANSPORT ${next}`);
-      if (next === "STOP") {
-        setShowSeconds(0);
-        stopTrailer();
-      }
+      if (next === "STOP") setShowSeconds(0);
     },
-    [pushLog, stopTrailer],
+    [pushLog],
   );
 
   const autoLoad = useCallback(() => {
@@ -240,35 +219,19 @@ export default function Controller() {
     }, 900);
   }, [pushLog]);
 
-  const playTrailer = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-
-    if (playing) {
-      stopTrailer();
-      setTransport("STOP");
-      sfx.stop();
-      pushLog("PLAY STOPPED");
-      return;
-    }
-
-    sfx.run();
-    setPlaying(true);
-    setTransport("RUN");
+  const exitShow = useCallback(() => {
+    sfx.stop();
+    setTransport("STOP");
+    setShowSeconds(0);
     setFlags((f) => ({
       ...f,
-      "IN SHOW POSITION": true,
-      "REEL UNIT READY": true,
-      "SYSTEM READY": true,
+      "IN SHOW POSITION": false,
+      "REEL UNIT READY": false,
+      "SYSTEM READY": false,
     }));
-    setPresetsDone(true);
-    pushLog("PLAY TRAILER");
-    void v.play().catch(() => {
-      setPlaying(false);
-      setTransport("STOP");
-      pushLog("PLAY FAILED");
-    });
-  }, [playing, pushLog, stopTrailer]);
+    setPresetsDone(false);
+    pushLog("EXIT SHOW");
+  }, [pushLog]);
 
   const selectShow = useCallback(
     (i: number) => {
@@ -394,8 +357,8 @@ export default function Controller() {
         case "changeshow":
           openShows();
           break;
-        case "play":
-          playTrailer();
+        case "exit":
+          exitShow();
           break;
       }
     },
@@ -410,7 +373,7 @@ export default function Controller() {
       resetFrames,
       toggleMode,
       autoLoad,
-      playTrailer,
+      exitShow,
     ],
   );
 
@@ -452,6 +415,7 @@ export default function Controller() {
   }, [overlay, overlayCount, menuIndex, pushLog, selectShow]);
 
   useEffect(() => {
+    setNow(new Date());
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -639,10 +603,9 @@ export default function Controller() {
           openShows();
           break;
         case "e":
-        case "p":
           e.preventDefault();
-          setFocus("play");
-          playTrailer();
+          setFocus("exit");
+          exitShow();
           break;
         case "0":
         case "Backspace":
@@ -688,7 +651,7 @@ export default function Controller() {
     toggleMode,
     toggleRemote,
     autoLoad,
-    playTrailer,
+    exitShow,
     resetFrames,
     toggleFlag,
     pushLog,
@@ -820,8 +783,8 @@ export default function Controller() {
                         <span>
                           SHOW TIME {formatShowTime(showSeconds)} (MM:SS)
                         </span>
-                        <span>DATE {formatDate(now)}</span>
-                        <span>TIME {formatClock(now)}</span>
+                        <span>DATE {now ? formatDate(now) : "--/--/--"}</span>
+                        <span>TIME {now ? formatClock(now) : "--:--:--"}</span>
                       </div>
                     </section>
 
@@ -956,29 +919,16 @@ export default function Controller() {
 
                   <button
                     type="button"
-                    className={navClass("btn center", "play", focus, playing)}
+                    className={navClass("btn center", "exit", focus)}
                     onClick={() => {
-                      setFocus("play");
-                      playTrailer();
+                      setFocus("exit");
+                      exitShow();
                     }}
                   >
-                    PLAY
+                    Exit Show
                   </button>
                 </footer>
               </div>
-
-              <video
-                ref={videoRef}
-                className={`monitor-video${playing ? " on" : ""}`}
-                src={TRAILER_SRC}
-                playsInline
-                preload="metadata"
-                onEnded={() => {
-                  setPlaying(false);
-                  setTransport("STOP");
-                  pushLog("TRAILER END");
-                }}
-              />
 
               {overlay && (
                 <div className="overlay" role="dialog" aria-modal="true">
@@ -1119,7 +1069,7 @@ export default function Controller() {
                   <kbd>M</kbd>
                   <kbd>L</kbd>
                   <kbd>O</kbd>
-                  <kbd>P</kbd> Play
+                  <kbd>E</kbd>
                 </li>
                 <li>
                   <kbd>1</kbd>–<kbd>5</kbd> Flags · <kbd>0</kbd> Reset

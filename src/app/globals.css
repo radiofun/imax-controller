@@ -406,25 +406,6 @@ button {
   text-shadow: var(--glow);
 }
 
-/* Odyssey trailer — plays inside the CRT glass under the shader */
-.monitor-video {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  background: #000;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms linear;
-}
-
-.monitor-video.on {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 /* Mobile: no SVG barrel — panel fills the (transform-scaled) design screen */
 .crt-flat {
   position: relative;
